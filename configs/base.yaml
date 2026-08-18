@@ -1,0 +1,27 @@
+project:
+  name: vgsr
+  version: "0.1.0"
+  seed: 42
+
+paths:
+  data: data
+  raw_data: data/raw
+  processed_data: data/processed
+  results: results
+  checkpoints: results/checkpoints
+
+model:
+  name: Qwen/Qwen2.5-Coder-1.5B-Instruct
+  torch_dtype: auto
+  trust_remote_code: false
+
+generation:
+  max_new_tokens: 512
+  temperature: 0.0
+  do_sample: false
+
+evaluation:
+  batch_size: 1
+
+logging:
+  level: INFO
