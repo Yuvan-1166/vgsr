@@ -30,7 +30,8 @@ dist/
 .cache/
 .huggingface/
 huggingface/
-models/
+models/*/
+!src/vgsr/models/
 checkpoints/
 
 # Experiment outputs

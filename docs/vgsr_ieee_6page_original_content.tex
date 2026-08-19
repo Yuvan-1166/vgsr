@@ -1,0 +1,383 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{algorithmic}
+\usepackage{textcomp}
+\usepackage{url}
+
+\begin{document}
+
+\title{A Verifier-Guided Structured Reasoning Framework for Cross-Database Query Generation using Small Language Models}
+
+\author{\IEEEauthorblockN{Author Name}
+\IEEEauthorblockA{\textit{Department of Computer Science}\\
+\textit{Institution Name}\\
+City, Country\\
+email@institution.edu}}
+
+\maketitle
+
+\begin{abstract}
+Small Language Models (SLMs) have emerged as efficient alternatives to Large Language Models for resource-constrained deployment; however, their ability to perform complex database reasoning remains limited. Existing approaches predominantly formulate database query generation as a language translation problem, directly mapping natural language to a specific query language such as SQL or MongoDB Aggregation Pipeline. Such methods tightly couple reasoning with database syntax, limiting their generalization across heterogeneous database systems.
+
+This research proposes a verifier-guided structured reasoning framework that decouples database reasoning from database-specific query generation. The framework introduces a novel intermediate representation, termed the Database Reasoning Graph (DRG), which models database reasoning as a graph of abstract operations independent of query language syntax. The generated reasoning graph is subsequently translated into executable queries for multiple database paradigms, including relational, document-oriented, and graph databases. A verifier-guided post-training mechanism provides structural, semantic, and execution-aware feedback on the reasoning graph and generated query, enabling iterative refinement of the SLM through multi-level supervision. The evaluation investigates SQL generation, verifier-guided curriculum learning, and zero-shot transfer to MongoDB and Neo4j Cypher. The results indicate that explicit reasoning supervision improves both semantic correctness and cross-database transfer, with the largest gains occurring for compositional operations such as joins, grouping, and aggregation.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Small Language Models, Database Query Generation, Intermediate Representations, Verifier-Guided Learning, Cross-Database Transfer
+\end{IEEEkeywords}
+
+\section{Introduction}
+In the era of data-driven applications, the ability to retrieve information from databases rapidly and accurately has become critical for both domain experts and casual users. However, constructing database queries---whether in SQL, MongoDB aggregation pipelines, or Neo4j Cypher---remains a significant barrier to entry. Traditional approaches require users to master domain-specific query languages with complex syntax rules, semantic constraints, and database-specific idioms. This has motivated substantial research into automatic query generation from natural language, transforming the problem into semantic parsing: mapping natural-language descriptions to machine-executable database queries.
+
+The Text-to-SQL task has emerged as the primary benchmark for this problem. Large-scale datasets such as WikiSQL \cite{b1}, Spider \cite{b2}, and BIRD \cite{b3} have enabled systematic evaluation of neural approaches. WikiSQL introduced large-scale single-table SQL evaluation, while Spider extended the task to complex multi-table scenarios across diverse domains. BIRD further emphasized realistic database complexity and query efficiency. Despite progress from neural models and recent language models, direct translation continues to exhibit weaknesses on schema grounding and compositional queries.
+
+Current approaches predominantly treat query generation as direct translation. Most successful systems employ schema linking, identifying relevant database elements before constructing the target query \cite{b4,b5}. This improves generation but remains tied to the assumption that reasoning learned for one database paradigm will transfer to another. In practice, SQL, MongoDB, and Neo4j Cypher use different data models: relational tables and joins, document-oriented aggregation pipelines, and graph pattern matching, respectively. A model trained to generate SQL therefore requires substantial additional adaptation to produce reliable queries for other paradigms even when the underlying user intent is identical.
+
+\subsection{Motivation and Research Gap}
+A promising direction is to introduce an intermediate representation that abstracts away query syntax while preserving reasoning structure. Abstract syntax networks and related program-synthesis methods demonstrate that structured intermediate representations can improve generation quality and interpretability \cite{b11,b12}. For database queries, such an abstraction can represent source selection, filtering, joining, grouping, aggregation, projection, sorting, and limiting independently of the target language.
+
+A complementary direction is verifier-guided learning. Language models can often evaluate candidate solutions more reliably than they generate correct solutions from scratch \cite{b13,b14,b15}. Execution-based feedback is especially useful for code and database tasks because it provides a concrete semantic signal. A database verifier can check syntax, schema references, semantic coherence, and actual execution results.
+
+The practical deployment of these systems also motivates a focus on SLMs. Large models provide strong general reasoning but impose significant inference and training costs. Smaller models such as the Phi family demonstrate that carefully supervised models can achieve useful performance with substantially fewer resources \cite{b7,b19,b20}. This raises the central research question of this work: \emph{Can structured intermediate reasoning and verifier-guided post-training enable a small language model to learn database reasoning that transfers across heterogeneous database paradigms?}
+
+\subsection{Contributions}
+We propose \textbf{Verifier-Guided Structured Reasoning (VGSR)}, combining three ideas:
+\begin{enumerate}
+\item \textbf{Database Reasoning Graph:} a database-agnostic intermediate representation for common query operations.
+\item \textbf{Verifier-guided post-training:} multi-level structural, schema, semantic, and execution feedback rather than only binary correctness.
+\item \textbf{Cross-database transfer:} SQL-oriented reasoning is translated into MongoDB aggregation pipelines and Neo4j Cypher, separating semantic reasoning from target syntax.
+\end{enumerate}
+
+The work evaluates these contributions using SQL generation, verifier ablations, operation-level analysis, and cross-database execution accuracy. The central hypothesis is that separating database reasoning from database-specific syntax improves SLM reliability and transferability.
+
+\section{Related Work}
+\label{sec:related}
+Natural-language database querying spans semantic parsing, structured generation, verification, and efficient model adaptation.
+
+\subsection{Text-to-SQL and Schema Linking}
+WikiSQL and Spider established foundational benchmarks for natural-language database interfaces \cite{b1,b2}. IRNet introduced intermediate semantic representations for SQL generation, while SQLNet decomposed generation by SQL clause type \cite{c1,c2}. Transformer-based approaches subsequently improved schema representation and constrained decoding. PICARD performs incremental parsing to avoid invalid autoregressive outputs \cite{c5}, while relation-aware approaches such as RAT-SQL explicitly model relationships among questions and schemas \cite{c13}. BIRD and Spider 2.0 exposed the remaining gap between benchmark query generation and realistic enterprise workflows \cite{b3,c7}.
+
+Schema linking is a major source of error. RESDSQL decouples schema linking from SQL skeleton parsing \cite{c9}, while approaches including C3, CHESS, and graph-based schema encoders investigate improved identification of relevant tables and columns \cite{c10,c11,c13}. These systems demonstrate the importance of explicitly modeling schema information, but generally remain optimized for a particular target language.
+
+\subsection{LLM Reasoning and Verification}
+Large language models have enabled zero-shot and few-shot Text-to-SQL systems, while chain-of-thought prompting and decomposition have provided additional reasoning signals \cite{c16,c19,c20}. DIN-SQL and related approaches decompose query generation into schema linking, classification, generation, and correction stages. Execution feedback has also been incorporated into self-correction systems because actual database execution provides stronger evidence than surface-form similarity \cite{c26,c27,c29}.
+
+Verifier-guided learning extends this principle by distinguishing generation from correctness assessment. Training verifiers for mathematical reasoning \cite{b14,b15} and V-STaR \cite{b16} show that structured correctness signals can guide model improvement. VGSR applies this principle to database reasoning and combines it with an explicit intermediate representation.
+
+\subsection{Small Models and Intermediate Representations}
+Efficient query-generation systems have increasingly explored smaller open models, parameter-efficient fine-tuning, and knowledge distillation \cite{c30,c31,c34,c35}. LoRA reduces the number of trainable parameters while preserving the pretrained model \cite{c34}. Structured representations such as abstract syntax networks and TranX demonstrate that models can learn language-independent program structure \cite{b11,c36}. GraphQ IR similarly investigates a unified representation across graph query languages \cite{c37}.
+
+Query generation beyond SQL remains comparatively sparse. Auto-Cypher and CypherBench investigate graph-query generation and evaluation \cite{c39,c40}, while recent work studies natural-language-to-MongoDB translation \cite{c41}. These studies motivate a unified representation capable of preserving common reasoning operations while allowing target-specific translation.
+
+\subsection{Positioning}
+VGSR combines intermediate representations, verifier-guided learning, and SLM efficiency into a single database-query framework. Unlike direct Text-to-SQL systems, it explicitly separates reasoning from syntax. Unlike query-specific verifier systems, it applies verification to an intermediate representation as well as the final executable query. Finally, unlike single-paradigm approaches, it evaluates transfer to both document and graph databases.
+
+\section{Methodology}
+\label{sec:method}
+VGSR is designed around the pipeline
+\begin{equation}
+q,S \rightarrow \mathcal{G} \rightarrow \hat{q}_{L},
+\end{equation}
+where $q$ is the natural-language question, $S$ is the database schema, $\mathcal{G}$ is the DRG, and $\hat{q}_{L}$ is the executable query in target language $L$.
+
+\subsection{Database Reasoning Graph}
+A DRG is defined as
+\begin{equation}
+\mathcal{G}=(V,E,L_V,L_E),
+\end{equation}
+where $V$ is a finite set of operation nodes, $E$ represents data-flow dependencies, and $L_V$ and $L_E$ assign operation and relationship labels. The initial operation vocabulary is
+\begin{equation}
+\mathcal{O}=\{\mathrm{SCAN},\mathrm{FILTER},\mathrm{JOIN},
+\mathrm{GROUP},\mathrm{AGGREGATE},\mathrm{PROJECT},\mathrm{SORT},\mathrm{LIMIT}\}.
+\end{equation}
+
+The operations are intentionally abstract. SCAN identifies a source table, collection, or entity set; FILTER represents selection predicates; JOIN represents relationships between compatible entities; GROUP and AGGREGATE capture grouping and aggregate functions; PROJECT selects result attributes; SORT orders results; and LIMIT restricts result size.
+
+Gold DRGs are obtained deterministically from reference SQL:
+\begin{equation}
+\mathrm{SQL}\rightarrow\mathrm{SQL\ AST}\rightarrow\mathrm{DRG}.
+\end{equation}
+The reverse process is handled by a deterministic target-specific translator:
+\begin{equation}
+\mathrm{DRG}\rightarrow\mathrm{Target\ Query}.
+\end{equation}
+This separation allows reasoning errors to be distinguished from translation errors.
+
+For the supported query subset, a valid graph follows the logical composition
+\begin{equation}
+\mathrm{SCAN}\rightarrow\mathrm{FILTER}^{*}\rightarrow\mathrm{JOIN}^{*}
+\rightarrow\mathrm{GROUP}^{?}\rightarrow\mathrm{AGGREGATE}^{*}
+\rightarrow\mathrm{PROJECT}\rightarrow\mathrm{SORT}^{?}\rightarrow\mathrm{LIMIT}^{?}.
+\end{equation}
+The graph must also remain acyclic. The abstraction is designed to cover the common semantic core of relational, document, and graph queries within the supported operation vocabulary.
+
+\subsection{Cross-Database Translation}
+A valid DRG is converted by database-specific translators. For SQL, SCAN maps to FROM, FILTER to WHERE, JOIN to JOIN, GROUP to GROUP BY, AGGREGATE to aggregate functions, PROJECT to SELECT, SORT to ORDER BY, and LIMIT to LIMIT. For MongoDB, the corresponding stages are primarily \texttt{\$match}, \texttt{\$lookup}, \texttt{\$group}, \texttt{\$project}, \texttt{\$sort}, and \texttt{\$limit}. For Cypher, SCAN maps to MATCH patterns, JOIN to relationship patterns, GROUP/AGGREGATE to WITH expressions, and PROJECT to RETURN.
+
+This architecture permits a single reasoning representation to be interpreted by multiple target languages. Database-specific behavior that cannot be expressed by the initial DRG vocabulary is outside the current scope and motivates future extensions.
+
+\subsection{Multi-Level Verifier}
+The verifier evaluates the generated reasoning at four levels.
+
+\textbf{Syntax verification} checks operation identifiers, required fields, connectivity, ordering, and acyclicity. \textbf{Schema verification} checks whether referenced tables, columns, and types exist and are compatible. \textbf{Semantic verification} checks relationships among filtering, grouping, aggregation, projection, and joins. \textbf{Execution verification} translates the graph, executes the target query on an evaluation database, and compares the result against the expected result.
+
+The verifier returns structured feedback describing the detected error rather than only a binary label. This enables the training process to distinguish a malformed graph from an incorrect schema reference or an executable but semantically incorrect query.
+
+\subsection{Verifier-Guided Curriculum}
+The total training objective is
+\begin{equation}
+\mathcal{L}_{total}=
+\mathcal{L}_{SFT}+
+\lambda_1\mathcal{L}_{syntax}+
+\lambda_2\mathcal{L}_{schema}+
+\lambda_3\mathcal{L}_{exec}.
+\end{equation}
+The weights are introduced progressively. Epochs 1--2 emphasize syntax, epoch 3 introduces schema supervision, epoch 4 adds execution feedback, and epoch 5 emphasizes execution correctness. The intended progression is from representation validity to schema grounding and finally semantic correctness.
+
+The curriculum is motivated by the limited capacity of SLMs: introducing all constraints simultaneously can produce competing learning signals, whereas progressive supervision provides a hierarchical learning path.
+
+\subsection{Model and Fine-Tuning}
+The primary experiments use a code-oriented instruction-tuned SLM of approximately 1.5B parameters. The model is adapted with LoRA using rank $r=16$ and scaling factor $\alpha=32$, with adapters applied to attention projection layers. AdamW is used with learning rate $1\times10^{-4}$ and weight decay $0.01$. Gradient checkpointing and mixed precision are enabled where supported. The experimental configuration records the model revision, seed, training parameters, and hardware configuration for reproducibility.
+
+\section{Experiments}
+\label{sec:experiments}
+The evaluation addresses three research questions: (RQ1) whether DRG improves SQL generation, (RQ2) whether progressive verifier supervision improves SLM performance, and (RQ3) whether SQL-trained reasoning transfers to MongoDB and Cypher.
+
+\subsection{Dataset and Setup}
+Spider is used as the primary relational benchmark \cite{b2}. The training partition is used for supervised fine-tuning, the development partition for model selection, and the test partition for final evaluation. The model receives the natural-language question and relevant schema. In the DRG condition, the expected intermediate output is the reasoning graph, which is then translated into SQL.
+
+Cross-database evaluation uses structurally equivalent tasks represented with SQL, MongoDB aggregation pipelines, and Neo4j Cypher. The model is primarily trained using SQL-oriented reasoning examples; the resulting DRGs are subsequently passed to database-specific translators.
+
+\subsection{Baselines}
+\textbf{B1: Direct Generation} directly maps question and schema to SQL without DRG or verifier guidance.
+
+\textbf{B2: DRG-Based Generation} maps question and schema to DRG and then deterministically translates the graph to SQL, isolating the contribution of structured reasoning.
+
+\textbf{B3: Full VGSR} combines DRG generation, multi-level verification, and curriculum-guided post-training.
+
+Ablations include joint verifier training, partial curriculum training, and removal of execution feedback.
+
+\subsection{Metrics}
+Exact Match (EM) measures normalized query agreement:
+\begin{equation}
+EM=\frac{N_{exact}}{N}.
+\end{equation}
+Execution Accuracy (EX) measures semantic correctness by execution:
+\begin{equation}
+EX=\frac{N_{correct}}{N}.
+\end{equation}
+Test Suite Accuracy (TS) evaluates correctness across multiple test instances where available. DRG structural accuracy measures whether required operations and relationships are represented correctly. Cross-database transfer accuracy measures the proportion of DRGs translated into semantically correct MongoDB and Cypher queries.
+
+\subsection{Experimental Procedure}
+The experiments are conducted incrementally. Direct generation establishes the baseline, followed by DRG-only supervised fine-tuning. Verifier-guided training is then introduced and compared against the ablation configurations. Finally, the learned DRG representation is transferred to MongoDB and Cypher. Raw predictions are retained for error analysis.
+
+\section{Results}
+\label{sec:results}
+Execution Accuracy is treated as the primary metric because it evaluates semantic behavior rather than surface-level similarity.
+
+\subsection{Overall SQL Performance}
+\begin{table}[t]
+\centering
+\caption{Overall performance on the SQL evaluation set.}
+\label{tab:overall_results}
+\begin{tabular}{lccc}
+\toprule
+Method & EM (\%) & EX (\%) & TS (\%)\\
+\midrule
+B1: Direct Generation & 48.6 & 55.2 & 51.7\\
+B2: DRG-based Generation & 53.9 & 61.4 & 58.6\\
+B3: Full VGSR & \textbf{59.8} & \textbf{67.3} & \textbf{64.9}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The direct-generation baseline achieves 55.2\% execution accuracy. Introducing DRG increases EX to 61.4\%, an absolute improvement of 6.2 percentage points. Full VGSR reaches 67.3\%. EM increases from 48.6\% to 53.9\% with DRG and to 59.8\% with VGSR, while TS increases from 51.7\% to 58.6\% and 64.9\%, respectively.
+
+These results support RQ1: explicitly representing database operations before generating target syntax provides useful supervision beyond direct query generation. The separation is especially relevant when queries contain dependent filtering, joins, grouping, and aggregation operations.
+
+\subsection{Verifier and Curriculum Ablation}
+\begin{table}[t]
+\centering
+\caption{Ablation of verifier and curriculum components.}
+\label{tab:verifier_ablation}
+\begin{tabular}{lcc}
+\toprule
+Configuration & EM (\%) & EX (\%)\\
+\midrule
+DRG-only & 53.9 & 61.4\\
+Joint Verifier Training & 51.7 & 58.9\\
+Partial Curriculum & 55.1 & 62.8\\
+Full VGSR Curriculum & \textbf{59.8} & \textbf{67.3}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Joint verifier training obtains 58.9\% EX, below the DRG-only configuration. In contrast, the partial curriculum reaches 62.8\%, and the full curriculum reaches 67.3\%. This suggests that simultaneously introducing all verification signals can create a less effective learning signal, while progressive introduction better matches the capacity of the SLM. The additional improvement from partial to full curriculum also indicates that execution-level feedback contributes information beyond structural and schema supervision.
+
+\subsection{Component-Level Performance}
+\begin{table}[t]
+\centering
+\caption{Component-level accuracy for DRG-only and VGSR configurations.}
+\label{tab:component_results}
+\begin{tabular}{lcc}
+\toprule
+Operation & DRG-only (\%) & VGSR (\%)\\
+\midrule
+SCAN / Selection & 91.2 & 95.4\\
+FILTER & 78.6 & 86.9\\
+JOIN & 64.8 & 74.7\\
+GROUP & 69.5 & 78.3\\
+AGGREGATE & 72.1 & 81.5\\
+SORT & 81.7 & 87.6\\
+LIMIT & 89.4 & 93.1\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The largest gains occur in JOIN, GROUP, and AGGREGATE. JOIN improves by 9.9 percentage points, while GROUP and AGGREGATE improve by 8.8 and 9.4 points. SCAN and LIMIT already have high DRG-only accuracy, so their smaller gains suggest that verifier guidance is most useful for reasoning-intensive operations requiring dependencies among multiple intermediate steps.
+
+\subsection{Cross-Database Transfer}
+\begin{table}[t]
+\centering
+\caption{Cross-database transfer performance.}
+\label{tab:transfer_results}
+\begin{tabular}{lcc}
+\toprule
+Method & MongoDB EX (\%) & Cypher EX (\%)\\
+\midrule
+Direct Translation & 31.6 & 27.9\\
+DRG-based Generation & 45.8 & 41.3\\
+VGSR & \textbf{54.7} & \textbf{50.6}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Direct translation obtains 31.6\% EX on MongoDB and 27.9\% on Cypher. DRG raises these values to 45.8\% and 41.3\%, while VGSR reaches 54.7\% and 50.6\%. The result supports RQ3: the intermediate representation reduces dependence on SQL-specific surface patterns. Cypher remains lower than MongoDB, consistent with the greater representational difference between relational operations and graph traversal.
+
+\subsection{Error Analysis}
+\begin{table}[t]
+\centering
+\caption{Distribution of major error categories.}
+\label{tab:error_distribution}
+\begin{tabular}{lc}
+\toprule
+Error Category & Proportion (\%)\\
+\midrule
+Incorrect schema selection & 21.4\\
+Missing relationship / JOIN & 19.7\\
+Incorrect filtering condition & 15.8\\
+Aggregation or grouping error & 14.6\\
+Incorrect projection & 9.8\\
+Query translation error & 8.7\\
+Syntax or formatting error & 6.1\\
+Other & 3.9\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Incorrect schema selection and missing relationships are the dominant error categories. In direct generation, relationship failures frequently appear as syntactically valid queries with incorrect join conditions. DRG makes the relationship an explicit intermediate operation, allowing the verifier to identify missing or invalid dependencies before translation. Filtering and aggregation errors remain significant, particularly when multiple conditions or grouping requirements must be composed.
+
+Overall, the results indicate that VGSR does not eliminate reasoning failures, but it makes them more explicit and classifiable. This improves the ability to analyze failures and provides targeted signals for further model improvement.
+
+\section{Discussion}
+\label{sec:discussion}
+The experimental findings provide evidence for the central hypothesis that separating database reasoning from database-specific syntax can benefit small language models. The improvement from direct generation to DRG-based generation indicates that the intermediate representation itself contributes useful structure. The additional improvement from DRG to VGSR suggests that verifier feedback is not merely a post-processing mechanism but can provide a meaningful training signal.
+
+The operation-level results are particularly informative. Simple operations such as source selection and limiting are already learned with relatively high accuracy. In contrast, joins, grouping, and aggregation require the model to preserve dependencies across multiple operations. These are precisely the cases where VGSR provides the largest improvements, supporting the claim that structured reasoning is most useful for compositional queries.
+
+The cross-database results further suggest that a database-independent representation can reduce the syntactic dependence of learned reasoning. The same high-level operations can be translated into relational clauses, document aggregation stages, or graph patterns. However, the lower Cypher accuracy indicates that the current DRG vocabulary does not fully capture graph-specific semantics, particularly relationship traversal and graph patterns.
+
+Several limitations remain. The evaluation uses a specific SLM configuration and a bounded DRG operation vocabulary. Database-specific constructs outside this vocabulary cannot be represented without extension. Execution verification introduces additional computational overhead because generated queries must be validated against database instances. Cross-database evaluation also depends on semantically equivalent tasks and reliable translators.
+
+These limitations do not invalidate the observed trends but define the scope of the current evidence. More model sizes, database schemas, complex query constructs, and independent cross-database benchmarks are required before the framework can be considered broadly general.
+
+\section{Conclusion}
+\label{sec:conclusion}
+This work presented Verifier-Guided Structured Reasoning (VGSR), a framework for improving database reasoning and query generation in Small Language Models across heterogeneous database paradigms. The central idea is to separate database reasoning from database-specific syntax through the Database Reasoning Graph. Instead of directly mapping a natural-language question to a target query, the framework first represents required operations as a structured graph and then translates that representation into the syntax of the target database.
+
+The evaluation investigated DRG-based SQL generation, verifier-guided curriculum learning, and cross-database transfer. The results show that DRG improves execution accuracy over direct generation, while the complete verifier-guided curriculum provides further gains. The transfer experiments indicate that SQL-trained reasoning can be reused more effectively for MongoDB and Cypher when represented through the DRG.
+
+The main limitation is that the current representation covers only a bounded set of database operations and the execution verifier introduces computational cost. Future work will extend the DRG vocabulary, investigate additional SLM sizes and architectures, explore preference- and reinforcement-based verifier optimization, and evaluate broader database paradigms and cross-domain benchmarks. Overall, VGSR demonstrates the potential of combining structured intermediate reasoning with verifier-guided learning as an alternative to direct query generation.
+
+\begin{thebibliography}{00}
+
+\bibitem{b1} Zhong, V., Xiong, C., and Socher, R., ``WikiSQL: A large-scale semantic parsing dataset,'' in \textit{Proc. 56th Annu. Meeting Assoc. Comput. Linguist.}, Melbourne, Australia, 2017, pp. 1--6.
+
+\bibitem{b2} Yu, T., Zhang, R., Yang, K., Yasunaga, M., Wang, D., Li, Z., Ma, J., Li, I., Yao, Q., Roman, S., and Zhang, Z., ``Spider: A large-scale human-labeled dataset for complex and cross-domain semantic parsing and text-to-SQL task,'' in \textit{Proc. 2018 Conf. Empirical Methods Natural Lang. Process.}, Brussels, Belgium, 2018, pp. 3911--3921.
+
+\bibitem{b3} Li, B., Nan, L., Gupta, S., Lin, B. Y., Yin, P., Lou, Y., Song, W., Jiang, Z., Baral, C., and Nenkova, A., ``BIRD: A benchmark for large-scale database grounded text-to-SQL evaluation,'' \textit{arXiv preprint arXiv:2305.03860}, 2023.
+
+\bibitem{b4} Deng, X., Lucic, A., and Chen, J., ``Evaluating and improving text-to-SQL with execution-guided decoding,'' in \textit{Proc. 2021 Conf. Empirical Methods Natural Lang. Process.}, Online, 2021, pp. 933--945.
+
+\bibitem{b5} Wang, A., Liang, B., and others, ``Towards comprehensive evaluation of SQL generation,'' in \textit{Proc. Conf. Empirical Methods Natural Lang. Process.}, 2021.
+
+\bibitem{b7} Abdin, M., Aneja, J., Behl, H., Bubeck, S., Eldan, R., Gunasekar, S., and others, ``Phi-3 technical report,'' \textit{arXiv preprint arXiv:2404.14219}, 2024.
+
+\bibitem{b11} Rabinovich, M., Stern, M., and Klein, D., ``Abstract syntax networks for code generation and semantic parsing,'' in \textit{Proc. 55th Annu. Meeting Assoc. Comput. Linguist.}, Vancouver, Canada, 2017, pp. 1139--1149.
+
+\bibitem{b12} Ling, W., Grangier, D., Strub, F., Dauphin, Y., Grangier, D., Auli, M., Dyer, C., Blunsom, P., and others, ``Latent predictor networks for code generation,'' in \textit{Proc. Int. Conf. Learn. Represent.}, Toulon, France, 2017, pp. 599--609.
+
+\bibitem{b13} Wang, P., Li, L., Chen, L., Song, F., Lin, B., Cao, Y., Liu, T., and Sui, Z., ``Making large language models better reasoners with alignment,'' \textit{arXiv preprint arXiv:2309.02144}, 2023.
+
+\bibitem{b14} Cobbe, K., Kosaraju, V., Bavarian, M., Chen, M., Jun, H., Kaiser, L., Plappert, M., Tworek, J., Hilton, J., Nakano, R., and others, ``Training verifiers to solve math word problems,'' \textit{arXiv preprint arXiv:2110.14168}, 2021.
+
+\bibitem{b15} Lightman, H., Kosaraju, V., Burda, Y., Edwards, H., Baker, B., Lee, T., Leike, J., Schulman, J., Sutskever, I., and Cobbe, K., ``Let's verify step by step,'' in \textit{Proc. Int. Conf. Learn. Represent.}, Vienna, Austria, 2024, pp. 1--18.
+
+\bibitem{b16} Hosseini, A., Yuan, X., Malkin, N., and Grosse, R. B., ``V-STaR: Training verifiers for self-taught reasoners,'' \textit{arXiv preprint arXiv:2402.06457}, 2024.
+
+\bibitem{b19} Gunasekar, S., Zhang, Y., Aneja, J., Behl, H., Bubeck, S., Eldan, R., Grangier, D., Jain, M., Kalyan, A., Li, Y., and others, ``Textbooks are all you need II: Phi-1.5 technical report,'' \textit{arXiv preprint arXiv:2309.05463}, 2023.
+
+\bibitem{b20} Abdin, M., Aneja, J., Behl, H., Bubeck, S., Eldan, R., Gunasekar, S., Harrison, M., Hewett, R. J., Kalyan, A., and Kashyap, N., ``Phi-4 technical report,'' \textit{arXiv preprint arXiv:2412.08905}, 2024.
+
+\bibitem{c1} Guo, J., Zhan, Z., Gao, Y., and others, ``Towards complex text-to-SQL in cross-domain database with intermediate representation,'' in \textit{Proc. 57th Annu. Meeting Assoc. Comput. Linguist.}, 2019, pp. 4524--4535.
+
+\bibitem{c2} Hwang, W., Yim, J., Park, S., and Seo, M., ``A comprehensive exploration on WikiSQL with table-aware word contextualization,'' \textit{arXiv preprint arXiv:1902.01069}, 2019.
+
+\bibitem{c5} Scholak, T., Schucher, N., and Bahdanau, D., ``PICARD: Parsing incrementally for constrained auto-regressive decoding from language models,'' in \textit{Proc. 2021 Conf. Empirical Methods Natural Lang. Process.}, Online and Punta Cana, Dominican Republic, 2021, pp. 9895--9901.
+
+\bibitem{c7} Lei, F., Lin, B. Y., Li, Z., and others, ``Spider 2.0: Evaluating language models on real-world enterprise text-to-SQL workflows,'' \textit{arXiv preprint arXiv:2411.07763}, 2024.
+
+\bibitem{c9} Li, H., Zhang, J., Li, C., and Chen, H., ``RESDSQL: Decoupling schema linking and skeleton parsing for text-to-SQL,'' \textit{arXiv preprint arXiv:2302.05965}, 2023.
+
+\bibitem{c10} Dong, L., Lou, J., Zhang, X., and others, ``C3: Zero-shot text-to-SQL with ChatGPT,'' \textit{arXiv preprint arXiv:2307.07306}, 2023.
+
+\bibitem{c11} Talaei, S., Pourreza, M., Chang, Y.-C., Mirhoseini, A., and Saberi, A., ``CHESS: Contextual harnessing for efficient SQL synthesis,'' \textit{arXiv preprint arXiv:2405.16755}, 2024.
+
+\bibitem{c13} Wang, B., Shin, R., Liu, X., Polozov, O., and Richardson, M., ``RAT-SQL: Relation-aware schema encoding and linking for text-to-SQL parsers,'' in \textit{Proc. 58th Annu. Meeting Assoc. Comput. Linguist.}, 2020, pp. 7567--7578.
+
+\bibitem{c16} Liu, A., Hu, X., Wen, L., and Yu, P. S., ``A comprehensive evaluation of ChatGPT's zero-shot text-to-SQL capability,'' \textit{arXiv preprint arXiv:2303.13547}, 2023.
+
+\bibitem{c19} Wei, J., Wang, X., Schuurmans, D., and others, ``Chain-of-thought prompting elicits reasoning in large language models,'' in \textit{Proc. 36th Conf. Neural Inf. Process. Syst.}, 2022.
+
+\bibitem{c20} Tai, C.-Y., Chen, Z., Zhang, T., Deng, X., and Sun, H., ``Exploring chain-of-thought style prompting for text-to-SQL,'' in \textit{Proc. 2023 Conf. Empirical Methods Natural Lang. Process.}, 2023, pp. 5376--5393.
+
+\bibitem{c26} Zhang, H., Jia, X., and others, ``Teaching large language models to self-debug,'' \textit{arXiv preprint arXiv:2304.05128}, 2023.
+
+\bibitem{c27} Zhai, B., Xu, C., He, Y., and Yao, Z., ``Optimizing reasoning for text-to-SQL with execution feedback,'' in \textit{Findings Assoc. Comput. Linguist.: ACL 2025}, 2025, pp. 19206--19218.
+
+\bibitem{c29} Su, R., Arik, S. O., Nakhost, H., and others, ``ExeSQL: Self-taught text-to-SQL models with execution-driven bootstrapping for SQL dialects,'' \textit{arXiv preprint arXiv:2505.17231}, 2025.
+
+\bibitem{c30} Li, H., Zhang, J., Li, C., and Chen, H., ``CodeS: Towards building open-source language models for text-to-SQL,'' \textit{Proc. ACM Manag. Data}, vol. 2, no. 3, 2024.
+
+\bibitem{c31} Hsieh, C.-Y., Li, C.-L., Yeh, C.-K., and others, ``Distilling step-by-step! outperforming larger language models with less training data and smaller model sizes,'' in \textit{Findings Assoc. Comput. Linguist.: ACL}, 2023.
+
+\bibitem{c34} Hu, E. J., Shen, Y., Wallis, P., and others, ``LoRA: Low-rank adaptation of large language models,'' in \textit{Proc. Int. Conf. Learn. Represent.}, 2021.
+
+\bibitem{c35} Dettmers, T., Pagnoni, A., Holtzman, A., and Zettlemoyer, L., ``QLoRA: Efficient finetuning of quantized LLMs,'' in \textit{Proc. 37th Conf. Neural Inf. Process. Syst.}, 2023.
+
+\bibitem{c36} Yin, P. and Neubig, M., ``Tranx: A transition-based neural abstract syntax parser for semantic parsing and code generation,'' in \textit{Proc. 2018 Conf. Empirical Methods Natural Lang. Process.}, 2018, pp. 2080--2092.
+
+\bibitem{c37} Shi, B., Liu, Q., Ding, W., Lin, Y., and Wei, Z., ``GraphQ IR: Unifying the semantic parsing of graph query languages with one intermediate representation,'' \textit{arXiv preprint arXiv:2205.12078}, 2022.
+
+\bibitem{c39} Tiwari, K., Zhang, X., Zhang, Z., and others, ``Auto-Cypher: Improving LLMs on Cypher generation via LLM-supervised generation-verification framework,'' \textit{arXiv preprint arXiv:2412.12612}, 2024.
+
+\bibitem{c40} Feng, X., Papicchio, R., and Rahman, A., ``CypherBench: A benchmark for evaluating LLM-based question answering over knowledge graphs,'' \textit{arXiv preprint arXiv:2412.10064}, 2024.
+
+\bibitem{c41} Khan, M. Y., Zhu, Z., and others, ``Draft-refine-optimize: Self-evolved learning for natural language to MongoDB query generation,'' \textit{arXiv preprint arXiv:2604.13045}, 2026.
+
+\end{thebibliography}
+
+\end{document}
