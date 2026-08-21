@@ -1,0 +1,183 @@
+@import "tailwindcss";
+
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --bg-primary: #09090b;
+  --bg-secondary: #111114;
+  --bg-tertiary: #18181c;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
+  --accent: #6366f1;
+  --accent-soft: rgba(99, 102, 241, 0.12);
+  color-scheme: dark;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+textarea, input, select {
+  font-family: var(--font-sans);
+}
+pre, code {
+  font-family: var(--font-mono);
+}
+
+/* Card surface */
+.surface {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+}
+.surface-hover:hover {
+  border-color: var(--border-default);
+}
+.surface-inner {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+/* Accent border on hover */
+.accent-border {
+  position: relative;
+}
+.accent-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.25), transparent 60%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.accent-border:hover::before,
+.accent-border:focus-within::before {
+  opacity: 1;
+}
+
+/* Subtle ambient glow */
+.ambient-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ambient-glow::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  left: 10%;
+  width: 50%;
+  height: 50%;
+  background: radial-gradient(ellipse, rgba(99,102,241,0.03) 0%, transparent 70%);
+}
+.ambient-glow::after {
+  content: '';
+  position: absolute;
+  bottom: -15%;
+  right: 10%;
+  width: 40%;
+  height: 40%;
+  background: radial-gradient(ellipse, rgba(139,92,246,0.02) 0%, transparent 70%);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.06);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+/* Focus rings */
+*:focus-visible {
+  outline: 2px solid rgba(99,102,241,0.4);
+  outline-offset: 2px;
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.4s ease-out both;
+}
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out both;
+}
+.animate-slide-down {
+  animation: slideDown 0.25s ease-out both;
+}
+
+/* Shimmer loading */
+.shimmer {
+  background: linear-gradient(90deg, transparent 25%, rgba(99,102,241,0.04) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* SQL syntax colors */
+.sql-keyword { color: #a78bfa; font-weight: 500; }
+.sql-function { color: #67e8f9; }
+.sql-string { color: #86efac; }
+.sql-number { color: #fbbf24; }
+.sql-comment { color: #3f3f46; font-style: italic; }
+.sql-operator { color: #f472b6; }
+.sql-table { color: #93c5fd; }
+.sql-column { color: #e4e4e7; }
+
+/* Selection */
+::selection {
+  background: rgba(99,102,241,0.25);
+  color: #fff;
+}
